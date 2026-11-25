@@ -19,6 +19,9 @@ export function FirebaseSetupModal({ onClose, onSaved }: FirebaseSetupModalProps
   const [authDomain, setAuthDomain] = useState(existing?.authDomain ?? '');
   const [appId, setAppId] = useState(existing?.appId ?? '');
   const [appCheckSiteKey, setAppCheckSiteKey] = useState(existing?.appCheckSiteKey ?? '');
+  const [appCheckProvider, setAppCheckProvider] = useState<'enterprise' | 'v3'>(
+    existing?.appCheckProvider ?? 'enterprise'
+  );
   const [cloudModel, setCloudModel] = useState(existing?.cloudModel ?? DEFAULT_CLOUD_MODEL);
   const [snippetInput, setSnippetInput] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +59,7 @@ export function FirebaseSetupModal({ onClose, onSaved }: FirebaseSetupModalProps
       authDomain: authDomain.trim() || `${projectId.trim()}.firebaseapp.com`,
       appId: appId.trim(),
       appCheckSiteKey: appCheckSiteKey.trim() || undefined,
+      appCheckProvider,
       cloudModel: cloudModel.trim() || DEFAULT_CLOUD_MODEL,
     };
     await saveFirebaseConfig(cfg);
@@ -144,13 +148,26 @@ export function FirebaseSetupModal({ onClose, onSaved }: FirebaseSetupModalProps
               <input className="field-input mono" value={appId} onChange={(e) => setAppId(e.target.value)} />
             </div>
             <div>
-              <label className="field-label">App Check reCAPTCHA v3 Site Key</label>
+              <label className="field-label">App Check Site Key</label>
               <input
                 className="field-input mono"
                 placeholder="6Lc..."
                 value={appCheckSiteKey}
                 onChange={(e) => setAppCheckSiteKey(e.target.value)}
               />
+            </div>
+            <div>
+              <label className="field-label">App Check Provider</label>
+              <select
+                className="field-input"
+                value={appCheckProvider}
+                onChange={(e) =>
+                  setAppCheckProvider(e.target.value === 'v3' ? 'v3' : 'enterprise')
+                }
+              >
+                <option value="enterprise">reCAPTCHA Enterprise (Recommended)</option>
+                <option value="v3">reCAPTCHA v3 (Classic)</option>
+              </select>
             </div>
             <div>
               <label className="field-label">Cloud Fallback Model</label>

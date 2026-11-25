@@ -2,6 +2,7 @@ import { deleteApp, getApps, initializeApp, type FirebaseApp } from 'firebase/ap
 import { getAI, GoogleAIBackend, type AI } from 'firebase/ai';
 import {
   initializeAppCheck,
+  ReCaptchaEnterpriseProvider,
   ReCaptchaV3Provider,
   type AppCheck,
 } from 'firebase/app-check';
@@ -26,6 +27,9 @@ export function loadFirebaseConfig(): RuntimeFirebaseConfig | null {
             messagingSenderId: parsed.messagingSenderId?.trim(),
             appId: parsed.appId.trim(),
             appCheckSiteKey: parsed.appCheckSiteKey?.trim() || undefined,
+            appCheckProvider:
+              parsed.appCheckProvider === 'v3' ? 'v3' : 'enterprise',
+            appCheckDebugToken: parsed.appCheckDebugToken?.trim() || undefined,
             cloudModel: parsed.cloudModel?.trim() || DEFAULT_CLOUD_MODEL,
           };
         }
@@ -40,6 +44,7 @@ export function loadFirebaseConfig(): RuntimeFirebaseConfig | null {
   const envAppId = import.meta.env.VITE_FIREBASE_APP_ID?.trim();
 
   if (envApiKey && envProjectId && envAppId) {
+    const providerEnv = import.meta.env.VITE_FIREBASE_APP_CHECK_PROVIDER?.trim();
     return {
       apiKey: envApiKey,
       authDomain:
@@ -50,6 +55,9 @@ export function loadFirebaseConfig(): RuntimeFirebaseConfig | null {
       messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID?.trim(),
       appId: envAppId,
       appCheckSiteKey: import.meta.env.VITE_FIREBASE_APP_CHECK_SITE_KEY?.trim() || undefined,
+      appCheckProvider: providerEnv === 'v3' ? 'v3' : 'enterprise',
+      appCheckDebugToken:
+        import.meta.env.VITE_FIREBASE_APP_CHECK_DEBUG_TOKEN?.trim() || undefined,
       cloudModel: import.meta.env.VITE_FIREBASE_AI_MODEL?.trim() || DEFAULT_CLOUD_MODEL,
     };
   }
@@ -111,8 +119,16 @@ export function getFirebaseAIHandle(): FirebaseAIHandle | null {
   let appCheck: AppCheck | null = null;
   if (config.appCheckSiteKey && typeof window !== 'undefined') {
     try {
+      if (config.appCheckDebugToken) {
+        (window as unknown as Record<string, unknown>).FIREBASE_APPCHECK_DEBUG_TOKEN =
+          config.appCheckDebugToken === 'true' ? true : config.appCheckDebugToken;
+      }
+      const provider =
+        config.appCheckProvider === 'v3'
+          ? new ReCaptchaV3Provider(config.appCheckSiteKey)
+          : new ReCaptchaEnterpriseProvider(config.appCheckSiteKey);
       appCheck = initializeAppCheck(app, {
-        provider: new ReCaptchaV3Provider(config.appCheckSiteKey),
+        provider,
         isTokenAutoRefreshEnabled: true,
       });
     } catch {

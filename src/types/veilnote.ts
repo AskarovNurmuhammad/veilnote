@@ -95,6 +95,8 @@ export interface RuntimeFirebaseConfig {
   messagingSenderId?: string;
   appId: string;
   appCheckSiteKey?: string;
+  appCheckProvider?: 'enterprise' | 'v3';
+  appCheckDebugToken?: string;
   cloudModel?: string;
 }
 
