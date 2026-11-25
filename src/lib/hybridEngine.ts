@@ -88,6 +88,12 @@ ${sanitizedText}
 """`;
 }
 
+function isStubbedOnDeviceOutput(text: string): boolean {
+  return /On-device model is not available in Chromium|just echoing back the input/i.test(
+    text
+  );
+}
+
 function normalizeBrief(
   parsed: Record<string, unknown> | null,
   fallbackText: string
@@ -177,18 +183,23 @@ export async function runLocalPrivacyShield(
           mode: InferenceMode.ONLY_ON_DEVICE,
         });
         const res = await nanoOnly.generateContent(nerPrompt);
-        const parsed = extractJsonObject(res.response.text());
-        if (parsed && Array.isArray(parsed.entities)) {
-          for (const entry of parsed.entities) {
-            const obj = entry as Record<string, unknown>;
-            if (typeof obj.value === 'string') {
-              extraEntities.push({ value: obj.value, category: 'PERSON' });
+        const text = res.response.text();
+        if (!isStubbedOnDeviceOutput(text)) {
+          const parsed = extractJsonObject(text);
+          if (parsed && Array.isArray(parsed.entities)) {
+            for (const entry of parsed.entities) {
+              const obj = entry as Record<string, unknown>;
+              if (typeof obj.value === 'string') {
+                extraEntities.push({ value: obj.value, category: 'PERSON' });
+              }
             }
           }
+          actualSource = res.response.inferenceSource ?? InferenceSource.ON_DEVICE;
+          modelLabel = 'Gemini Nano (Firebase ONLY_ON_DEVICE)';
+          note = 'Local deterministic + on-device Nano contextual NER';
+        } else {
+          note = 'Chromium on-device model stubbed; deterministic local shield enforced';
         }
-        actualSource = res.response.inferenceSource ?? InferenceSource.ON_DEVICE;
-        modelLabel = 'Gemini Nano (Firebase ONLY_ON_DEVICE)';
-        note = 'Local deterministic + on-device Nano contextual NER';
       } catch {
         // On-device model unavailable in current browser; deterministic scanner still protects PII
         note = 'On-device Nano unavailable; deterministic local shield enforced';
@@ -200,18 +211,22 @@ export async function runLocalPrivacyShield(
           const session = await window.LanguageModel.create();
           try {
             const out = await session.prompt(nerPrompt);
-            const parsed = extractJsonObject(out);
-            if (parsed && Array.isArray(parsed.entities)) {
-              for (const entry of parsed.entities) {
-                const obj = entry as Record<string, unknown>;
-                if (typeof obj.value === 'string') {
-                  extraEntities.push({ value: obj.value, category: 'PERSON' });
+            if (!isStubbedOnDeviceOutput(out)) {
+              const parsed = extractJsonObject(out);
+              if (parsed && Array.isArray(parsed.entities)) {
+                for (const entry of parsed.entities) {
+                  const obj = entry as Record<string, unknown>;
+                  if (typeof obj.value === 'string') {
+                    extraEntities.push({ value: obj.value, category: 'PERSON' });
+                  }
                 }
               }
+              actualSource = InferenceSource.ON_DEVICE;
+              modelLabel = 'Chrome Gemini Nano (Prompt API)';
+              note = 'Local deterministic + Chrome built-in Gemini Nano NER';
+            } else {
+              note = 'Chromium on-device model stubbed; deterministic local shield enforced';
             }
-            actualSource = InferenceSource.ON_DEVICE;
-            modelLabel = 'Chrome Gemini Nano (Prompt API)';
-            note = 'Local deterministic + Chrome built-in Gemini Nano NER';
           } finally {
             session.destroy?.();
           }
@@ -352,21 +367,23 @@ export async function runHybridBrief(
           });
           try {
             const rawOut = await session.prompt(promptText);
-            const parsed = extractJsonObject(rawOut);
-            return {
-              brief: normalizeBrief(parsed, rawOut),
-              telemetry: {
-                id: makeTelemetryId(),
-                timestamp: new Date().toISOString(),
-                stage: 'Stage 2 · Hybrid Brief',
-                requestedMode: mode,
-                actualSource: InferenceSource.ON_DEVICE,
-                latencyMs: Math.max(1, Math.round(performance.now() - t0)),
-                modelLabel: 'Chrome Gemini Nano (On-Device)',
-                piiCount: sanitization.entities.length,
-                note: 'Executed purely on-device without cloud credentials',
-              },
-            };
+            if (!isStubbedOnDeviceOutput(rawOut)) {
+              const parsed = extractJsonObject(rawOut);
+              return {
+                brief: normalizeBrief(parsed, rawOut),
+                telemetry: {
+                  id: makeTelemetryId(),
+                  timestamp: new Date().toISOString(),
+                  stage: 'Stage 2 · Hybrid Brief',
+                  requestedMode: mode,
+                  actualSource: InferenceSource.ON_DEVICE,
+                  latencyMs: Math.max(1, Math.round(performance.now() - t0)),
+                  modelLabel: 'Chrome Gemini Nano (On-Device)',
+                  piiCount: sanitization.entities.length,
+                  note: 'Executed purely on-device without cloud credentials',
+                },
+              };
+            }
           } finally {
             session.destroy?.();
           }
@@ -434,14 +451,39 @@ export async function runHybridBrief(
     });
   }
 
-  const result = await model.generateContent(parts);
-  const rawText = result.response.text();
-  const parsed = extractJsonObject(rawText);
-  const actualSource: EffectiveExecutionSource =
+  let result = await model.generateContent(parts);
+  let rawText = result.response.text();
+  let actualSource: EffectiveExecutionSource =
     result.response.inferenceSource ??
     (mode === InferenceMode.ONLY_ON_DEVICE
       ? InferenceSource.ON_DEVICE
       : InferenceSource.IN_CLOUD);
+
+  // Some Chromium builds stub window.LanguageModel with an echo placeholder instead of throwing.
+  // When hybrid fallback is allowed, escalate cleanly to Firebase AI Cloud Gemini.
+  if (isStubbedOnDeviceOutput(rawText)) {
+    if (mode === InferenceMode.ONLY_ON_DEVICE) {
+      throw new Error(
+        'On-device Gemini Nano is not installed in this browser (Chromium returned an echo stub). Switch to Hybrid: Prefer On-Device to allow cloud fallback.'
+      );
+    }
+    const cloudFallbackModel = getGenerativeModel(handle.ai, {
+      mode: InferenceMode.ONLY_IN_CLOUD,
+      inCloudParams: {
+        model: cloudModel,
+        systemInstruction: SYSTEM_INSTRUCTION,
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+        },
+      },
+    });
+    result = await cloudFallbackModel.generateContent(parts);
+    rawText = result.response.text();
+    actualSource = result.response.inferenceSource ?? InferenceSource.IN_CLOUD;
+  }
+
+  const parsed = extractJsonObject(rawText);
 
   return {
     brief: normalizeBrief(parsed, rawText),
