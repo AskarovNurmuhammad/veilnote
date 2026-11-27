@@ -502,7 +502,7 @@ export async function runHybridBrief(
     if (mode === InferenceMode.ONLY_ON_DEVICE || !isTransientDemandError(err)) {
       throw err;
     }
-    const fallbackCandidates = ['gemini-3.5-flash-lite', 'gemini-3.5-flash'].filter(
+    const fallbackCandidates = ['gemini-3.8-flash', 'gemini-3.5-flash'].filter(
       (m) => m !== cloudModel
     );
     const recovered = await runCloudModelFallback(handle.ai, fallbackCandidates, parts);
@@ -527,7 +527,9 @@ export async function runHybridBrief(
     }
     const recovered = await runCloudModelFallback(
       handle.ai,
-      [cloudModel, 'gemini-3.5-flash-lite', 'gemini-3.5-flash'],
+      [cloudModel, 'gemini-3.8-flash', 'gemini-3.5-flash'].filter(
+        (m, i, arr) => arr.indexOf(m) === i
+      ),
       parts
     );
     result = recovered.response;
