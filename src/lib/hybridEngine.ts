@@ -94,6 +94,29 @@ function isStubbedOnDeviceOutput(text: string): boolean {
   );
 }
 
+function isTransientDemandError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\[500\s*\]|\[503\s*\]|\[429\s*\]|high demand|temporarily unavailable/i.test(msg);
+}
+
+async function generateWithRetry(
+  call: () => Promise<Awaited<ReturnType<ReturnType<typeof getGenerativeModel>['generateContent']>>>,
+  maxRetries = 2
+) {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await call();
+    } catch (err) {
+      if (attempt >= maxRetries || !isTransientDemandError(err)) {
+        throw err;
+      }
+      attempt += 1;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+    }
+  }
+}
+
 function normalizeBrief(
   parsed: Record<string, unknown> | null,
   fallbackText: string
@@ -181,6 +204,11 @@ export async function runLocalPrivacyShield(
       try {
         const nanoOnly = getGenerativeModel(handle.ai, {
           mode: InferenceMode.ONLY_ON_DEVICE,
+          onDeviceParams: {
+            createOptions: {
+              expectedOutputs: [{ type: 'text', languages: ['en'] }],
+            },
+          },
         });
         const res = await nanoOnly.generateContent(nerPrompt);
         const text = res.response.text();
@@ -208,7 +236,9 @@ export async function runLocalPrivacyShield(
       try {
         const avail = await window.LanguageModel.availability();
         if (avail === 'available') {
-          const session = await window.LanguageModel.create();
+          const session = await window.LanguageModel.create({
+            expectedOutputs: [{ type: 'text', languages: ['en'] }],
+          });
           try {
             const out = await session.prompt(nerPrompt);
             if (!isStubbedOnDeviceOutput(out)) {
@@ -363,6 +393,7 @@ export async function runHybridBrief(
         const avail = await window.LanguageModel.availability();
         if (avail === 'available') {
           const session = await window.LanguageModel.create({
+            expectedOutputs: [{ type: 'text', languages: ['en'] }],
             initialPrompts: [{ role: 'system', content: [{ type: 'text', value: SYSTEM_INSTRUCTION }] }],
           });
           try {
@@ -415,6 +446,7 @@ export async function runHybridBrief(
     mode,
     onDeviceParams: {
       createOptions: {
+        expectedOutputs: [{ type: 'text', languages: ['en'] }],
         initialPrompts: [
           {
             role: 'system',
@@ -451,7 +483,7 @@ export async function runHybridBrief(
     });
   }
 
-  let result = await model.generateContent(parts);
+  let result = await generateWithRetry(() => model.generateContent(parts));
   let rawText = result.response.text();
   let actualSource: EffectiveExecutionSource =
     result.response.inferenceSource ??
@@ -478,7 +510,7 @@ export async function runHybridBrief(
         },
       },
     });
-    result = await cloudFallbackModel.generateContent(parts);
+    result = await generateWithRetry(() => cloudFallbackModel.generateContent(parts));
     rawText = result.response.text();
     actualSource = result.response.inferenceSource ?? InferenceSource.IN_CLOUD;
   }

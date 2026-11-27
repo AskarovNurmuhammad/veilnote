@@ -13,7 +13,7 @@ VeilNote solves this by splitting intelligence across **on-device** and **cloud*
 
 ## What it does
 - **Stage 1 · Local Privacy Shield:** Scans raw notes locally in the browser using deterministic pattern rules plus optional on-device **Gemini Nano** (`InferenceMode.ONLY_ON_DEVICE`), replacing PII and secrets with reversible tokens (`[PERSON_1]`, `[EMAIL_1]`, `[PHONE_1]`, `[SECRET_1]`). Raw values never leave the browser vault.
-- **Stage 2 · Hybrid Brief & Action Plan:** Sends **only the sanitized payload** (plus optional image attachments) through `firebase/ai` (`getGenerativeModel` with `InferenceMode.PREFER_ON_DEVICE`), automatically running locally on Gemini Nano when available and falling back to `gemini-2.5-flash` in the cloud when needed.
+- **Stage 2 · Hybrid Brief & Action Plan:** Sends **only the sanitized payload** (plus optional image attachments) through `firebase/ai` (`getGenerativeModel` with `InferenceMode.PREFER_ON_DEVICE`), automatically running locally on Gemini Nano when available and falling back to `gemini-3.8-flash` in the cloud when needed.
 - **Local Re-hydration & Telemetry:** Restores real names and contacts strictly inside the browser for one-click copying, while logging exact `inferenceSource` (`on_device` vs `in_cloud`), latency, and scrubbed byte counts in a live Telemetry Ledger.
 
 ## How we built it

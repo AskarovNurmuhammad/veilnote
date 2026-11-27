@@ -9,7 +9,7 @@ import {
 import type { RuntimeFirebaseConfig } from '../types/veilnote';
 
 const STORAGE_KEY = 'veilnote.firebaseConfig.v1';
-export const DEFAULT_CLOUD_MODEL = 'gemini-2.5-flash';
+export const DEFAULT_CLOUD_MODEL = 'gemini-3.8-flash';
 
 export function loadFirebaseConfig(): RuntimeFirebaseConfig | null {
   if (typeof window !== 'undefined') {

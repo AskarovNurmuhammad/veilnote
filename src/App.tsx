@@ -42,7 +42,7 @@ export function App() {
     chromeBuiltInAI: 'unavailable',
     firebaseConfigured: false,
     appCheckEnabled: false,
-    cloudModel: 'gemini-2.5-flash',
+    cloudModel: 'gemini-3.8-flash',
   });
 
   const [attachment, setAttachment] = useState<ImageAttachment | null>(null);

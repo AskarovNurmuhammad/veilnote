@@ -9,7 +9,7 @@ Teams handling clinical intake notes, client contracts, security incidents, or f
 VeilNote solves this with a **two-stage hybrid architecture**:
 
 1. **Stage 1 · Local Privacy Shield (On-Device First):** Runs deterministically inside the browser plus optional on-device **Gemini Nano** (`InferenceMode.ONLY_ON_DEVICE`) to detect and replace names, emails, phone numbers, IBANs, government IDs, addresses, and API keys with reversible tokens (`[PERSON_1]`, `[SECRET_1]`, etc.). Raw values stay inside the local browser vault.
-2. **Stage 2 · Hybrid Brief & Escalation (`firebase/ai`):** Calls `getGenerativeModel(ai, { mode, onDeviceParams, inCloudParams })` using **only the scrubbed payload** (plus optional PNG/JPEG attachments). When `PREFER_ON_DEVICE` is selected, inference runs locally on Gemini Nano when available and seamlessly falls back to `gemini-2.5-flash` in the cloud when needed.
+2. **Stage 2 · Hybrid Brief & Escalation (`firebase/ai`):** Calls `getGenerativeModel(ai, { mode, onDeviceParams, inCloudParams })` using **only the scrubbed payload** (plus optional PNG/JPEG attachments). When `PREFER_ON_DEVICE` is selected, inference runs locally on Gemini Nano when available and seamlessly falls back to `gemini-3.8-flash` in the cloud when needed.
 3. **Local Re-hydration:** After generation completes, tokens in the structured brief and draft reply are restored strictly inside the browser for one-click copying.
 
 ## Key Features
