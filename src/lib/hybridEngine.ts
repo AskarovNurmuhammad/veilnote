@@ -99,22 +99,33 @@ function isTransientDemandError(err: unknown): boolean {
   return /\[500\s*\]|\[503\s*\]|\[429\s*\]|high demand|temporarily unavailable/i.test(msg);
 }
 
-async function generateWithRetry(
-  call: () => Promise<Awaited<ReturnType<ReturnType<typeof getGenerativeModel>['generateContent']>>>,
-  maxRetries = 2
+async function runCloudModelFallback(
+  ai: NonNullable<ReturnType<typeof getFirebaseAIHandle>>['ai'],
+  models: string[],
+  parts: Array<string | Part>
 ) {
-  let attempt = 0;
-  while (true) {
+  let lastErr: unknown = null;
+  for (const candidate of models) {
     try {
-      return await call();
+      const altModel = getGenerativeModel(ai, {
+        mode: InferenceMode.ONLY_IN_CLOUD,
+        inCloudParams: {
+          model: candidate,
+          systemInstruction: SYSTEM_INSTRUCTION,
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.2,
+          },
+        },
+      });
+      const response = await altModel.generateContent(parts);
+      return { response, modelName: candidate };
     } catch (err) {
-      if (attempt >= maxRetries || !isTransientDemandError(err)) {
-        throw err;
-      }
-      attempt += 1;
-      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+      lastErr = err;
+      if (!isTransientDemandError(err)) throw err;
     }
   }
+  throw lastErr ?? new Error('Cloud fallback models unavailable.');
 }
 
 function normalizeBrief(
@@ -483,7 +494,22 @@ export async function runHybridBrief(
     });
   }
 
-  let result = await generateWithRetry(() => model.generateContent(parts));
+  let activeCloudModel = cloudModel;
+  let result;
+  try {
+    result = await model.generateContent(parts);
+  } catch (err) {
+    if (mode === InferenceMode.ONLY_ON_DEVICE || !isTransientDemandError(err)) {
+      throw err;
+    }
+    const fallbackCandidates = ['gemini-3.5-flash-lite', 'gemini-3.5-flash'].filter(
+      (m) => m !== cloudModel
+    );
+    const recovered = await runCloudModelFallback(handle.ai, fallbackCandidates, parts);
+    result = recovered.response;
+    activeCloudModel = recovered.modelName;
+  }
+
   let rawText = result.response.text();
   let actualSource: EffectiveExecutionSource =
     result.response.inferenceSource ??
@@ -499,18 +525,13 @@ export async function runHybridBrief(
         'On-device Gemini Nano is not installed in this browser (Chromium returned an echo stub). Switch to Hybrid: Prefer On-Device to allow cloud fallback.'
       );
     }
-    const cloudFallbackModel = getGenerativeModel(handle.ai, {
-      mode: InferenceMode.ONLY_IN_CLOUD,
-      inCloudParams: {
-        model: cloudModel,
-        systemInstruction: SYSTEM_INSTRUCTION,
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.2,
-        },
-      },
-    });
-    result = await generateWithRetry(() => cloudFallbackModel.generateContent(parts));
+    const recovered = await runCloudModelFallback(
+      handle.ai,
+      [cloudModel, 'gemini-3.5-flash-lite', 'gemini-3.5-flash'],
+      parts
+    );
+    result = recovered.response;
+    activeCloudModel = recovered.modelName;
     rawText = result.response.text();
     actualSource = result.response.inferenceSource ?? InferenceSource.IN_CLOUD;
   }
@@ -529,7 +550,7 @@ export async function runHybridBrief(
       modelLabel:
         actualSource === InferenceSource.ON_DEVICE
           ? 'Gemini Nano (Firebase AI On-Device)'
-          : `${cloudModel} (Firebase AI Cloud)`,
+          : `${activeCloudModel} (Firebase AI Cloud)`,
       piiCount: sanitization.entities.length,
       note: `Firebase AI Logic resolved via ${actualSource} (App Check ${handle.appCheck ? 'active' : 'unconfigured'})`,
     },
